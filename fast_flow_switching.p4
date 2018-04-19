@@ -4,6 +4,7 @@
 #include <tofino/constants.p4>
 #include <tofino/intrinsic_metadata.p4>
 #include <tofino/primitives.p4>
+#include <tofino/stateful_alu_blackbox.p4>
 #else
 #error This program is intended to compile for Tofino P4 architecture only
 #endif
@@ -55,7 +56,7 @@ header_type ipv4_t {
 
 header_type flow_set_id_t {
     fields {
-        flow_set_id : 16;
+        flow_set_id : 32;
     }
 }
 
@@ -84,16 +85,28 @@ header ipv4_t ipv4;
 parser parse_ipv4 {
     extract(ipv4);
     return ingress;
-  }
 }
 
-register flow_set_id{
-    width : 16;
+
+register r_flow_set{
+    width : 32;
     instance_count : 1;
 }
 
+
+/* Statefule ALU Program Code */
+blackbox stateful_alu salu_prog_read_my_reg {
+	reg : r_flow_set;
+
+	update_lo_1_value: register_lo;
+
+	output_value: 	alu_lo;
+	output_dst:	flow_set_id_metadata.flow_set_id;
+}
+
 action copy_register_to_metadata() {
-      modify_field(flow_set_id_metadata.flow_set_id,flow_set_id);
+//        modify_field(flow_set_id_metadata.flow_set_id,r_flow_set);
+	  salu_prog_read_my_reg.execute_stateful_alu(0);
 }
 
 action _drop() {
@@ -111,6 +124,7 @@ table copy_flow_set_id {
 }
 
 action take_video(dst_ip,dport) {
+//      modify_field(standard_metadata.egress_spec,dport);
       modify_field(ig_intr_md_for_tm.ucast_egress_port,dport);
       modify_field(ipv4.dstAddr,dst_ip);
 }
