@@ -9,10 +9,8 @@
 #error This program is intended to compile for Tofino P4 architecture only
 #endif
 
-// Scheduled media switching based on RTP timestamp
-// Author: Thomas Edwards (thomas.edwards@fox.com)
-
 // Fast Flow Switching based on register change
+// Author: Thomas Edwards (thomas.edwards@fox.com)
 
 // "Although registers cannot be used directly in matching, they may be used as
 // the source of a modify_field action allowing the current value of the
