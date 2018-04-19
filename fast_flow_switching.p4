@@ -54,11 +54,73 @@ header_type ipv4_t {
     }
 }
 
+header_type udp_t {
+    fields {
+        srcPort : 16;
+        dstPort : 16;
+        length_ : 16;
+        checksum : 16;
+    }
+}
+
+field_list ipv4_checksum_list {
+	ipv4.version;
+	ipv4.ihl;
+	ipv4.diffserv;
+	ipv4.totalLen;
+	ipv4.identification;
+	ipv4.flags;
+	ipv4.fragOffset;
+	ipv4.ttl;
+	ipv4.protocol;
+	ipv4.srcAddr;
+	ipv4.dstAddr;
+}
+
+field_list_calculation ipv4_checksum {
+	input {
+		ipv4_checksum_list;
+	}
+	algorithm : csum16;
+	output_width : 16;
+}
+
+calculated_field ipv4.hdrChecksum {
+	verify ipv4_checksum;
+	update ipv4_checksum;
+}
+
+field_list udp_ipv4_checksum_list {
+	ipv4.srcAddr;
+	ipv4.dstAddr;
+	8'0;
+	ipv4.protocol;
+	ipv4.totalLen;
+	udp.srcPort;
+	udp.dstPort;
+	udp.length_;
+	payload;
+}
+
+field_list_calculation udp_ipv4_checksum {
+	input {
+		udp_ipv4_checksum_list;
+	}
+	algorithm : csum16;
+	output_width : 16;
+}
+
+calculated_field udp.checksum {
+	update udp_ipv4_checksum;
+}
+
 header_type flow_set_id_t {
     fields {
         flow_set_id : 32;
     }
 }
+
+// metadata to carry the register value for table matching
 
 metadata flow_set_id_t flow_set_id_metadata;
 
@@ -84,17 +146,32 @@ header ipv4_t ipv4;
 
 parser parse_ipv4 {
     extract(ipv4);
+    return select(ipv4.protocol) {
+        PROTOCOL_UDP : parse_udp;
+	default: ingress;
+  }
+}
+
+header udp_t udp;
+
+parser parse_udp {
+    extract(udp);
     return ingress;
 }
 
+// this register is the key to changing flows
+// change the register value, and flows in the
+// schedule_table now match on the new register value
+// (register value is first copied to packet metadata for
+// the match)
 
 register r_flow_set{
     width : 32;
     instance_count : 1;
 }
 
+// Statefull ALU Program Code 
 
-/* Statefule ALU Program Code */
 blackbox stateful_alu salu_prog_read_my_reg {
 	reg : r_flow_set;
 
@@ -104,8 +181,9 @@ blackbox stateful_alu salu_prog_read_my_reg {
 	output_dst:	flow_set_id_metadata.flow_set_id;
 }
 
+// action runs ALU blackbox program to copy the register to packet metadata
+
 action copy_register_to_metadata() {
-//        modify_field(flow_set_id_metadata.flow_set_id,r_flow_set);
 	  salu_prog_read_my_reg.execute_stateful_alu(0);
 }
 
@@ -124,10 +202,21 @@ table copy_flow_set_id {
 }
 
 action take_video(dst_ip,dport) {
-//      modify_field(standard_metadata.egress_spec,dport);
+
+//    port for packets to egress from
+
+//    bmv2 version
+//    modify_field(standard_metadata.egress_spec,dport);
+
+//    tofino version:
       modify_field(ig_intr_md_for_tm.ucast_egress_port,dport);
+
+//    
       modify_field(ipv4.dstAddr,dst_ip);
 }
+
+// schedule_table matches on ipv4 dstAddr and the metadata where
+// we copied the flow_set_id register to
 
 table schedule_table {
     reads {
